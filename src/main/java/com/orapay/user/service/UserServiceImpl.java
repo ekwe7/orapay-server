@@ -14,6 +14,7 @@ import com.orapay.user.model.UserAccountStatus;
 import com.orapay.user.repository.UserRepository;
 import com.orapay.user.util.E164PhoneNumberValidatorAndNormalizer;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepositoryInstance;
     private final UserMapper userMapperInstance;
     private final EventPublisher domainEventPublisherInstance;
+    private final PasswordEncoder passwordEncoderInstance;
 
     @Override
     @Transactional
@@ -50,6 +52,7 @@ public class UserServiceImpl implements UserService {
         newUserEntity.setUserLastName(registrationRequestDto.getUserLastName());
         newUserEntity.setUserEmailAddress(registrationRequestDto.getUserEmailAddress());
         newUserEntity.setPhoneNumber(normalizedE164PhoneNumber);
+        newUserEntity.setPasswordHash(passwordEncoderInstance.encode(registrationRequestDto.getPassword()));
         newUserEntity.setUserAccountStatus(UserAccountStatus.ACTIVE);
         newUserEntity.setKycVerificationTier(KycVerificationTier.TIER_1);
 

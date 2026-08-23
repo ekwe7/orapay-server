@@ -26,4 +26,8 @@ public class UserRegistrationRequestDto {
 
     @NotBlank(message = "Raw input phone number is mandatory")
     private String rawInputPhoneNumber;
+
+    @NotBlank(message = "Password is mandatory")
+    @Size(min = 8, message = "Password must be at least 8 characters long")
+    private String password;
 }

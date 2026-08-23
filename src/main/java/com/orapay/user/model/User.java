@@ -30,7 +30,10 @@ public class User {
     private String userEmailAddress;
 
     @Column(name = "phone_number", nullable = false, unique = true, length = 30)
-    private String PhoneNumber;
+    private String phoneNumber;
+
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "user_account_status", nullable = false, length = 20)
