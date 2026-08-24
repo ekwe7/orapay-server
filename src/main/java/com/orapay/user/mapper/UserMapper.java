@@ -1,6 +1,6 @@
 package com.orapay.user.mapper;
 
-import com.orapay.user.dto.UserResponseDto;
+import com.orapay.user.dto.response.UserResponseDto;
 import com.orapay.user.model.User;
 import org.springframework.stereotype.Component;
 

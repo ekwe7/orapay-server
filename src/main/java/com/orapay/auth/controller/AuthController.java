@@ -1,11 +1,11 @@
 package com.orapay.auth.controller;
 
-import com.orapay.auth.dto.LoginRequestDto;
-import com.orapay.auth.dto.RefreshTokenRequestDto;
-import com.orapay.auth.dto.TokenResponseDto;
+import com.orapay.auth.dto.request.LoginRequestDto;
+import com.orapay.auth.dto.request.RefreshTokenRequestDto;
+import com.orapay.auth.dto.response.TokenResponseDto;
 import com.orapay.auth.service.AuthService;
-import com.orapay.common.dto.ApiResponse;
-import com.orapay.user.dto.UserRegistrationRequestDto;
+import com.orapay.common.dto.response.ApiResponse;
+import com.orapay.user.dto.request.UserRegistrationRequestDto;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

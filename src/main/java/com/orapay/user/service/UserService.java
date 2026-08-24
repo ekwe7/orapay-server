@@ -1,8 +1,8 @@
 package com.orapay.user.service;
 
-import com.orapay.user.dto.UserRegistrationRequestDto;
-import com.orapay.user.dto.UserResponseDto;
-import com.orapay.user.dto.UserStatusUpdateRequestDto;
+import com.orapay.user.dto.request.UserRegistrationRequestDto;
+import com.orapay.user.dto.request.UserStatusUpdateRequestDto;
+import com.orapay.user.dto.response.UserResponseDto;
 
 import java.util.UUID;
 

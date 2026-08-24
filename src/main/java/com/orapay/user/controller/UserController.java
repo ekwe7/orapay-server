@@ -1,9 +1,9 @@
 package com.orapay.user.controller;
 
-import com.orapay.common.dto.ApiResponse;
-import com.orapay.user.dto.UserRegistrationRequestDto;
-import com.orapay.user.dto.UserResponseDto;
-import com.orapay.user.dto.UserStatusUpdateRequestDto;
+import com.orapay.common.dto.response.ApiResponse;
+import com.orapay.user.dto.request.UserRegistrationRequestDto;
+import com.orapay.user.dto.request.UserStatusUpdateRequestDto;
+import com.orapay.user.dto.response.UserResponseDto;
 import com.orapay.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

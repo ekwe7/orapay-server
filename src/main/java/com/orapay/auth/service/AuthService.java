@@ -1,9 +1,9 @@
 package com.orapay.auth.service;
 
-import com.orapay.auth.dto.LoginRequestDto;
-import com.orapay.auth.dto.RefreshTokenRequestDto;
-import com.orapay.auth.dto.TokenResponseDto;
-import com.orapay.user.dto.UserRegistrationRequestDto;
+import com.orapay.auth.dto.request.LoginRequestDto;
+import com.orapay.auth.dto.request.RefreshTokenRequestDto;
+import com.orapay.auth.dto.response.TokenResponseDto;
+import com.orapay.user.dto.request.UserRegistrationRequestDto;
 
 public interface AuthService {
 
