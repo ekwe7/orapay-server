@@ -10,7 +10,7 @@ public class EventPublisher {
 
     private final ApplicationEventPublisher applicationEventPublisherInstance;
 
-    public void publishEvent(BaseDomainEvent domainEventInstance) {
+    public void publishEvent(Object domainEventInstance) {
         applicationEventPublisherInstance.publishEvent(domainEventInstance);
     }
 }

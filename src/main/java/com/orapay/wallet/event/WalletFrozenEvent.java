@@ -6,18 +6,16 @@ import lombok.Getter;
 import java.util.UUID;
 
 @Getter
-public class WalletCreatedEvent extends BaseDomainEvent {
+public class WalletFrozenEvent extends BaseDomainEvent {
 
     private final UUID walletId;
-    private final UUID userId;
     private final String accountNumber;
-    private final String currencyCode;
+    private final String reasonDescription;
 
-    public WalletCreatedEvent(Object source, UUID walletId, UUID userId, String accountNumber, String currencyCode) {
+    public WalletFrozenEvent(Object source, UUID walletId, String accountNumber, String reasonDescription) {
         super(source);
         this.walletId = walletId;
-        this.userId = userId;
         this.accountNumber = accountNumber;
-        this.currencyCode = currencyCode;
+        this.reasonDescription = reasonDescription;
     }
 }
