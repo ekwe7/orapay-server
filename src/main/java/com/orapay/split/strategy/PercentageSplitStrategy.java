@@ -2,6 +2,7 @@ package com.orapay.split.strategy;
 
 import com.orapay.common.exception.BusinessRuleException;
 import com.orapay.split.dto.request.SplitAllocationRuleDto;
+import com.orapay.split.util.RemainderBalancer;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -14,6 +15,16 @@ import java.util.UUID;
 @Component("percentageSplitStrategy")
 public class PercentageSplitStrategy implements SplitCalculationStrategy {
 
+    private final RemainderBalancer remainderBalancer;
+
+    public PercentageSplitStrategy(RemainderBalancer remainderBalancer) {
+        this.remainderBalancer = remainderBalancer;
+    }
+
+    public PercentageSplitStrategy() {
+        this.remainderBalancer = new RemainderBalancer();
+    }
+
     @Override
     public Map<UUID, Long> calculateSplits(long totalAmountInMinorUnits, List<SplitAllocationRuleDto> rules) {
         if (rules == null || rules.isEmpty()) {
@@ -21,12 +32,12 @@ public class PercentageSplitStrategy implements SplitCalculationStrategy {
         }
 
         Map<UUID, Long> allocations = new LinkedHashMap<>();
-        long runningTotalAllocated = 0L;
         BigDecimal hundred = new BigDecimal("100");
         BigDecimal totalPercentageSum = BigDecimal.ZERO;
 
-        for (int i = 0; i < rules.size(); i++) {
-            SplitAllocationRuleDto rule = rules.get(i);
+        UUID primaryRecipientId = rules.get(rules.size() - 1).getRecipientWalletId();
+
+        for (SplitAllocationRuleDto rule : rules) {
             BigDecimal pct = rule.getPercentage();
             if (pct == null || pct.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessRuleException("Percentage allocation rule must have a positive percentage");
@@ -39,18 +50,11 @@ public class PercentageSplitStrategy implements SplitCalculationStrategy {
 
             totalPercentageSum = totalPercentageSum.add(pct);
 
-            long calculatedAmount;
-            if (i == rules.size() - 1) {
-                // Remainder allocation strategy: Last recipient receives exact remaining balance to avoid float precision loss
-                calculatedAmount = totalAmountInMinorUnits - runningTotalAllocated;
-            } else {
-                BigDecimal amountBD = BigDecimal.valueOf(totalAmountInMinorUnits);
-                calculatedAmount = amountBD.multiply(pct)
-                        .divide(hundred, 0, RoundingMode.HALF_DOWN)
-                        .longValueExact();
-            }
+            BigDecimal amountBD = BigDecimal.valueOf(totalAmountInMinorUnits);
+            long calculatedAmount = amountBD.multiply(pct)
+                    .divide(hundred, 0, RoundingMode.HALF_DOWN)
+                    .longValueExact();
 
-            runningTotalAllocated += calculatedAmount;
             allocations.put(rule.getRecipientWalletId(), allocations.getOrDefault(rule.getRecipientWalletId(), 0L) + calculatedAmount);
         }
 
@@ -58,6 +62,7 @@ public class PercentageSplitStrategy implements SplitCalculationStrategy {
             throw new BusinessRuleException("Total percentage allocations must sum up to 100%");
         }
 
-        return allocations;
+        // Remainder balancer ensures zero-penny leakage by allocating fractions to the primary recipient
+        return remainderBalancer.balanceRemainders(totalAmountInMinorUnits, allocations, primaryRecipientId);
     }
 }

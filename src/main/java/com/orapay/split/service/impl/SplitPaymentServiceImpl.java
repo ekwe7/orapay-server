@@ -10,6 +10,8 @@ import com.orapay.split.dto.request.SplitPaymentRequestDto;
 import com.orapay.split.dto.response.SplitPaymentResponseDto;
 import com.orapay.split.dto.response.SplitTemplateResponseDto;
 import com.orapay.split.event.SplitPaymentCompletedEvent;
+import com.orapay.split.event.SplitPaymentFailedEvent;
+import com.orapay.split.event.SplitPaymentInitiatedEvent;
 import com.orapay.split.mapper.SplitPaymentMapper;
 import com.orapay.split.model.SplitAllocation;
 import com.orapay.split.model.SplitOrder;
@@ -22,6 +24,10 @@ import com.orapay.split.strategy.SplitCalculationStrategy;
 import com.orapay.wallet.model.Wallet;
 import com.orapay.wallet.repository.WalletRepository;
 import com.orapay.wallet.service.impl.WalletLockManager;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class SplitPaymentServiceImpl implements SplitPaymentService {
 
@@ -41,6 +48,12 @@ public class SplitPaymentServiceImpl implements SplitPaymentService {
     private final SplitCalculationStrategy percentageSplitStrategy;
     private final SplitCalculationStrategy fixedFeeSplitStrategy;
 
+    private final Counter splitRequestsCounter;
+    private final Counter splitSuccessCounter;
+    private final Counter splitFailedCounter;
+    private final Timer splitExecutionTimer;
+    private final MeterRegistry meterRegistry;
+
     public SplitPaymentServiceImpl(
             WalletLockManager walletLockManager,
             WalletRepository walletRepository,
@@ -49,7 +62,8 @@ public class SplitPaymentServiceImpl implements SplitPaymentService {
             SplitPaymentMapper splitPaymentMapper,
             EventPublisher eventPublisher,
             @Qualifier("percentageSplitStrategy") SplitCalculationStrategy percentageSplitStrategy,
-            @Qualifier("fixedFeeSplitStrategy") SplitCalculationStrategy fixedFeeSplitStrategy
+            @Qualifier("fixedFeeSplitStrategy") SplitCalculationStrategy fixedFeeSplitStrategy,
+            MeterRegistry meterRegistry
     ) {
         this.walletLockManager = walletLockManager;
         this.walletRepository = walletRepository;
@@ -59,111 +73,133 @@ public class SplitPaymentServiceImpl implements SplitPaymentService {
         this.eventPublisher = eventPublisher;
         this.percentageSplitStrategy = percentageSplitStrategy;
         this.fixedFeeSplitStrategy = fixedFeeSplitStrategy;
+        this.meterRegistry = meterRegistry;
+
+        this.splitRequestsCounter = Counter.builder("split.requests.total")
+                .description("Total number of split payment requests")
+                .register(meterRegistry);
+
+        this.splitSuccessCounter = Counter.builder("split.success.total")
+                .description("Total number of successful split payments")
+                .register(meterRegistry);
+
+        this.splitFailedCounter = Counter.builder("split.failed.total")
+                .description("Total number of failed split payments")
+                .register(meterRegistry);
+
+        this.splitExecutionTimer = Timer.builder("split.execution.duration")
+                .description("Duration spent processing split payments")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meterRegistry);
     }
 
-    /**
-     * Core execution engine for multi-party split payments.
-     * Takes an explicit request with allocations, locks involved wallets in deterministic order,
-     * computes the exact split amounts, transfers balances, persists records, and emits a domain event.
-     */
     @Override
     @Transactional
     public SplitPaymentResponseDto processSplitPayment(SplitPaymentRequestDto requestDto) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        splitRequestsCounter.increment();
+
         if (requestDto == null || requestDto.getAllocations() == null || requestDto.getAllocations().isEmpty()) {
             throw new BusinessRuleException("Split payment request must contain at least one allocation rule");
         }
 
-        // ----------------------------------------------------------------------------------
-        // Phase 1: Gather involved wallet IDs & acquire locks in sorted order (Deadlock Avoidance)
-        // ----------------------------------------------------------------------------------
-        Set<UUID> allWalletIds = new HashSet<>();
-        allWalletIds.add(requestDto.getPayerWalletId());
-        for (SplitAllocationRuleDto rule : requestDto.getAllocations()) {
-            allWalletIds.add(rule.getRecipientWalletId());
-        }
-
-        // Acquire pessimistic write locks in deterministic sorted primary-key order
-        Map<UUID, Wallet> lockedWallets = walletLockManager.acquireLocksAsMap(allWalletIds);
-
-        Wallet payerWallet = lockedWallets.get(requestDto.getPayerWalletId());
-        if (payerWallet == null) {
-            throw new BusinessRuleException("Payer wallet not found with ID: " + requestDto.getPayerWalletId());
-        }
-
-        // ----------------------------------------------------------------------------------
-        // Phase 2: Resolve & select calculation strategy (Percentage vs Fixed Fee)
-        // ----------------------------------------------------------------------------------
-        SplitCalculationStrategy strategy = resolveStrategy(requestDto.getAllocations());
-
-        // ----------------------------------------------------------------------------------
-        // Phase 3: Compute minor unit split allocations (Zero-Float Precision)
-        // ----------------------------------------------------------------------------------
-        Map<UUID, Long> calculatedSplits = strategy.calculateSplits(
-                requestDto.getTotalAmountInMinorUnits(),
-                requestDto.getAllocations()
-        );
-
-        // ----------------------------------------------------------------------------------
-        // Phase 4: Validate payer's available balance
-        // ----------------------------------------------------------------------------------
-        if (payerWallet.getAvailableBalanceInMinorUnits() < requestDto.getTotalAmountInMinorUnits()) {
-            throw new InsufficientFundsException(String.format(
-                    "Insufficient funds in payer wallet. Required: %d, Available: %d",
-                    requestDto.getTotalAmountInMinorUnits(),
-                    payerWallet.getAvailableBalanceInMinorUnits()
-            ));
-        }
-
-        // ----------------------------------------------------------------------------------
-        // Phase 5: Execute atomic balance updates (Debit Payer, Credit Recipients)
-        // ----------------------------------------------------------------------------------
-        payerWallet.setAvailableBalanceInMinorUnits(
-                payerWallet.getAvailableBalanceInMinorUnits() - requestDto.getTotalAmountInMinorUnits()
-        );
-
-        for (Map.Entry<UUID, Long> entry : calculatedSplits.entrySet()) {
-            Wallet recipientWallet = lockedWallets.get(entry.getKey());
-            if (recipientWallet == null) {
-                throw new BusinessRuleException("Recipient wallet not found with ID: " + entry.getKey());
+        SplitOrder pendingSplitOrder = null;
+        try {
+            // Phase 1: Gather involved wallet IDs & acquire locks in sorted order
+            Set<UUID> allWalletIds = new HashSet<>();
+            allWalletIds.add(requestDto.getPayerWalletId());
+            for (SplitAllocationRuleDto rule : requestDto.getAllocations()) {
+                allWalletIds.add(rule.getRecipientWalletId());
             }
-            recipientWallet.setAvailableBalanceInMinorUnits(
-                    recipientWallet.getAvailableBalanceInMinorUnits() + entry.getValue()
+
+            Map<UUID, Wallet> lockedWallets = walletLockManager.acquireLocksAsMap(allWalletIds);
+
+            Wallet payerWallet = lockedWallets.get(requestDto.getPayerWalletId());
+            if (payerWallet == null) {
+                throw new BusinessRuleException("Payer wallet not found with ID: " + requestDto.getPayerWalletId());
+            }
+
+            // Phase 2: Select strategy
+            SplitCalculationStrategy strategy = resolveStrategy(requestDto.getAllocations());
+
+            // Phase 3: Compute split allocations with zero penny leakage
+            Map<UUID, Long> calculatedSplits = strategy.calculateSplits(
+                    requestDto.getTotalAmountInMinorUnits(),
+                    requestDto.getAllocations()
             );
+
+            // Phase 4: Validate funds
+            if (payerWallet.getAvailableBalanceInMinorUnits() < requestDto.getTotalAmountInMinorUnits()) {
+                throw new InsufficientFundsException(String.format(
+                        "Insufficient funds in payer wallet. Required: %d, Available: %d",
+                        requestDto.getTotalAmountInMinorUnits(),
+                        payerWallet.getAvailableBalanceInMinorUnits()
+                ));
+            }
+
+            // Phase 5: Create PENDING SplitOrder & publish SplitPaymentInitiatedEvent
+            pendingSplitOrder = new SplitOrder();
+            pendingSplitOrder.setPayerWallet(payerWallet);
+            pendingSplitOrder.setTotalAmountInMinorUnits(requestDto.getTotalAmountInMinorUnits());
+            pendingSplitOrder.setCurrencyCode(requestDto.getCurrencyCode());
+            pendingSplitOrder.setStatus(SplitOrder.SplitOrderStatus.PENDING);
+            pendingSplitOrder = splitOrderRepository.save(pendingSplitOrder);
+
+            eventPublisher.publishEvent(new SplitPaymentInitiatedEvent(this, pendingSplitOrder));
+
+            // Phase 6: Perform atomic balance transfers (Debit Payer, Credit Recipients)
+            payerWallet.setAvailableBalanceInMinorUnits(
+                    payerWallet.getAvailableBalanceInMinorUnits() - requestDto.getTotalAmountInMinorUnits()
+            );
+
+            for (Map.Entry<UUID, Long> entry : calculatedSplits.entrySet()) {
+                Wallet recipientWallet = lockedWallets.get(entry.getKey());
+                if (recipientWallet == null) {
+                    throw new BusinessRuleException("Recipient wallet not found with ID: " + entry.getKey());
+                }
+                recipientWallet.setAvailableBalanceInMinorUnits(
+                        recipientWallet.getAvailableBalanceInMinorUnits() + entry.getValue()
+                );
+            }
+
+            // Phase 7: Save allocations & update SplitOrder status SETTLED
+            final SplitOrder targetOrder = pendingSplitOrder;
+            List<SplitAllocation> allocations = calculatedSplits.entrySet().stream()
+                    .map(entry -> {
+                        SplitAllocation allocation = new SplitAllocation();
+                        allocation.setSplitOrder(targetOrder);
+                        allocation.setRecipientWallet(lockedWallets.get(entry.getKey()));
+                        allocation.setAllocatedAmountInMinorUnits(entry.getValue());
+                        return allocation;
+                    })
+                    .collect(Collectors.toList());
+
+            pendingSplitOrder.setAllocations(allocations);
+            pendingSplitOrder.setStatus(SplitOrder.SplitOrderStatus.SETTLED);
+            SplitOrder settledSplitOrder = splitOrderRepository.save(pendingSplitOrder);
+
+            // Phase 8: Publish SplitPaymentCompletedEvent
+            eventPublisher.publishEvent(new SplitPaymentCompletedEvent(this, settledSplitOrder));
+
+            splitSuccessCounter.increment();
+            return splitPaymentMapper.mapToSplitPaymentResponseDto(settledSplitOrder);
+
+        } catch (Exception ex) {
+            splitFailedCounter.increment();
+            log.error("Split payment failed for payer wallet ID: [{}]", requestDto.getPayerWalletId(), ex);
+
+            if (pendingSplitOrder != null && pendingSplitOrder.getSplitOrderId() != null) {
+                pendingSplitOrder.setStatus(SplitOrder.SplitOrderStatus.FAILED);
+                splitOrderRepository.save(pendingSplitOrder);
+                eventPublisher.publishEvent(new SplitPaymentFailedEvent(this, pendingSplitOrder, ex.getMessage()));
+            }
+
+            throw ex;
+        } finally {
+            sample.stop(splitExecutionTimer);
         }
-
-        // ----------------------------------------------------------------------------------
-        // Phase 6: Persist SplitOrder and SplitAllocation records
-        // ----------------------------------------------------------------------------------
-        SplitOrder splitOrder = new SplitOrder();
-        splitOrder.setPayerWallet(payerWallet);
-        splitOrder.setTotalAmountInMinorUnits(requestDto.getTotalAmountInMinorUnits());
-        splitOrder.setCurrencyCode(requestDto.getCurrencyCode());
-        splitOrder.setStatus(SplitOrder.SplitOrderStatus.SETTLED);
-
-        List<SplitAllocation> allocations = calculatedSplits.entrySet().stream()
-                .map(entry -> {
-                    SplitAllocation allocation = new SplitAllocation();
-                    allocation.setSplitOrder(splitOrder);
-                    allocation.setRecipientWallet(lockedWallets.get(entry.getKey()));
-                    allocation.setAllocatedAmountInMinorUnits(entry.getValue());
-                    return allocation;
-                })
-                .collect(Collectors.toList());
-
-        splitOrder.setAllocations(allocations);
-        SplitOrder savedSplitOrder = splitOrderRepository.save(splitOrder);
-
-        // ----------------------------------------------------------------------------------
-        // Phase 7: Publish SplitPaymentCompletedEvent for Double-Entry Ledger Posting
-        // ----------------------------------------------------------------------------------
-        eventPublisher.publishEvent(new SplitPaymentCompletedEvent(this, savedSplitOrder));
-
-        return splitPaymentMapper.mapToSplitPaymentResponseDto(savedSplitOrder);
     }
 
-    /**
-     * Registers a new merchant/school split agreement template (e.g. State 15%, LGA 10%, School 75%).
-     */
     @Override
     @Transactional
     public SplitTemplateResponseDto createSplitTemplate(CreateSplitTemplateRequestDto requestDto) {
@@ -195,24 +231,14 @@ public class SplitPaymentServiceImpl implements SplitPaymentService {
         return mapToTemplateResponseDto(savedTemplate);
     }
 
-    /**
-     * Processes an automated merchant/school fee checkout payment.
-     * The payer (student) pays into one merchant account without needing to know internal sub-accounts.
-     */
     @Override
     @Transactional
     public SplitPaymentResponseDto processMerchantCheckout(MerchantCheckoutRequestDto checkoutDto) {
-        // ----------------------------------------------------------------------------------
-        // Phase 1: Fetch the pre-configured split template for this merchant & fee category
-        // ----------------------------------------------------------------------------------
         SplitTemplate template = splitTemplateRepository
                 .findByMerchantWallet_WalletIdAndFeeCategoryAndActiveTrue(checkoutDto.getMerchantWalletId(), checkoutDto.getFeeCategory())
                 .or(() -> splitTemplateRepository.findByMerchantWallet_WalletIdAndActiveTrue(checkoutDto.getMerchantWalletId()))
                 .orElseThrow(() -> new BusinessRuleException("No active split agreement template found for merchant: " + checkoutDto.getMerchantWalletId()));
 
-        // ----------------------------------------------------------------------------------
-        // Phase 2: Convert template rules into allocation rules (Percentages or Fixed Fees)
-        // ----------------------------------------------------------------------------------
         List<SplitAllocationRuleDto> allocationRules = template.getRules().stream()
                 .map(rule -> SplitAllocationRuleDto.builder()
                         .recipientWalletId(rule.getRecipientWallet().getWalletId())
@@ -221,9 +247,6 @@ public class SplitPaymentServiceImpl implements SplitPaymentService {
                         .build())
                 .collect(Collectors.toList());
 
-        // ----------------------------------------------------------------------------------
-        // Phase 3: Construct internal SplitPaymentRequestDto with extracted rules
-        // ----------------------------------------------------------------------------------
         SplitPaymentRequestDto splitPaymentRequest = SplitPaymentRequestDto.builder()
                 .payerWalletId(checkoutDto.getPayerWalletId())
                 .totalAmountInMinorUnits(checkoutDto.getTotalAmountInMinorUnits())
@@ -232,9 +255,6 @@ public class SplitPaymentServiceImpl implements SplitPaymentService {
                 .description(checkoutDto.getDescription())
                 .build();
 
-        // ----------------------------------------------------------------------------------
-        // Phase 4: Delegate execution to core split payment engine (handles locks, math & ledger)
-        // ----------------------------------------------------------------------------------
         return processSplitPayment(splitPaymentRequest);
     }
 

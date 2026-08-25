@@ -12,13 +12,15 @@ import com.orapay.split.repository.SplitTemplateRepository;
 import com.orapay.split.service.impl.SplitPaymentServiceImpl;
 import com.orapay.split.strategy.FixedFeeSplitStrategy;
 import com.orapay.split.strategy.PercentageSplitStrategy;
+import com.orapay.split.util.RemainderBalancer;
 import com.orapay.wallet.model.Wallet;
 import com.orapay.wallet.repository.WalletRepository;
 import com.orapay.wallet.service.impl.WalletLockManager;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -35,6 +37,7 @@ class SplitPaymentServiceImplTest {
     private SplitTemplateRepository splitTemplateRepository;
     private SplitPaymentMapper splitPaymentMapper;
     private EventPublisher eventPublisher;
+    private MeterRegistry meterRegistry;
     private SplitPaymentServiceImpl splitPaymentService;
 
     private UUID studentWalletId;
@@ -55,8 +58,10 @@ class SplitPaymentServiceImplTest {
         splitTemplateRepository = mock(SplitTemplateRepository.class);
         splitPaymentMapper = new SplitPaymentMapper();
         eventPublisher = mock(EventPublisher.class);
+        meterRegistry = new SimpleMeterRegistry();
 
-        PercentageSplitStrategy percentageSplitStrategy = new PercentageSplitStrategy();
+        RemainderBalancer remainderBalancer = new RemainderBalancer();
+        PercentageSplitStrategy percentageSplitStrategy = new PercentageSplitStrategy(remainderBalancer);
         FixedFeeSplitStrategy fixedFeeSplitStrategy = new FixedFeeSplitStrategy();
 
         splitPaymentService = new SplitPaymentServiceImpl(
@@ -67,7 +72,8 @@ class SplitPaymentServiceImplTest {
                 splitPaymentMapper,
                 eventPublisher,
                 percentageSplitStrategy,
-                fixedFeeSplitStrategy
+                fixedFeeSplitStrategy,
+                meterRegistry
         );
 
         studentWalletId = UUID.randomUUID();
