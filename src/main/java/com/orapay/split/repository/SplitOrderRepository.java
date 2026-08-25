@@ -1,5 +1,6 @@
-package com.orapay.split.model;
+package com.orapay.split.repository;
 
+import com.orapay.split.model.SplitOrder;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
