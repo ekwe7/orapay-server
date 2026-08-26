@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface LedgerService {
 
     Page<LedgerEntryResponseDto> getLedgerEntriesForWallet(UUID walletId, Pageable pageable);
+
+    boolean verifyTransactionIntegrity(UUID transactionId);
 }

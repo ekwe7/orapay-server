@@ -14,11 +14,12 @@ public class LedgerMapper {
                 .entryId(entry.getEntryId())
                 .transactionId(entry.getTransactionId())
                 .walletId(entry.getWalletId())
-                .direction(entry.getDirection())
+                .entryDirection(entry.getEntryDirection() != null ? entry.getEntryDirection() : entry.getDirection())
                 .amountInMinorUnits(entry.getAmountInMinorUnits())
                 .currencyCode(entry.getCurrencyCode())
                 .allocationRole(entry.getAllocationRole())
                 .reference(entry.getReference())
+                .balanceAfterPostingUnits(entry.getBalanceAfterPostingUnits())
                 .createdAt(entry.getCreatedAt())
                 .build();
     }
