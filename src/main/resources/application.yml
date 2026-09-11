@@ -28,3 +28,9 @@ springdoc:
     operationsSorter: method
     tagsSorter: alpha
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus"
+
