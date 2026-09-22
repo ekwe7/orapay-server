@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>oraPay Transaction Receipt</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 0; }
+        .wrapper { width: 100%; table-layout: fixed; background-color: #0f172a; padding: 40px 0; }
+        .card { max-width: 600px; background-color: #1e293b; margin: 0 auto; border-radius: 12px; overflow: hidden; border: 1px solid #334155; }
+        .header { background: linear-gradient(135deg, #0284c7, #0369a1); padding: 30px; text-align: center; }
+        .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; }
+        .body { padding: 30px; }
+        .amount-box { background-color: #0f172a; border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 25px; border: 1px solid #38bdf8; }
+        .amount-box .label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .amount-box .value { font-size: 32px; font-weight: bold; color: #38bdf8; }
+        .details-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        .details-table th, .details-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #334155; font-size: 14px; }
+        .details-table th { color: #94a3b8; font-weight: 600; width: 40%; }
+        .details-table td { color: #f8fafc; font-weight: 500; text-align: right; }
+        .footer { text-align: center; padding: 20px; font-size: 12px; color: #64748b; background-color: #0f172a; border-top: 1px solid #334155; }
+    </style>
+</head>
+<body>
+    <table class="wrapper" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+            <td>
+                <table class="card" width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td class="header">
+                            <h1>oraPay Transaction Receipt</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="body">
+                            <p>Hello <strong th:text="${recipientName}">Customer</strong>,</p>
+                            <p>Your wallet has received a successful inward transaction. Here are the details:</p>
+                            
+                            <div class="amount-box">
+                                <div class="label">Amount Received</div>
+                                <div class="value" th:text="${amount}">$0.00</div>
+                            </div>
+
+                            <table class="details-table">
+                                <tr>
+                                    <th>Transaction ID</th>
+                                    <td th:text="${transactionId}">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <td th:text="${timestamp}">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Status</th>
+                                    <td style="color: #34d399; font-weight: bold;">COMPLETED</td>
+                                </tr>
+                            </table>
+                            <p style="font-size: 13px; color: #94a3b8; line-height: 1.5;">
+                                This transaction is backed by oraPay’s immutable double-entry ledger security. If you did not expect this transfer, please reach out to support immediately.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="footer">
+                            &copy; 2026 oraPay FinTech Systems. All rights reserved.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -22,7 +22,7 @@ spring:
 
 springdoc:
   api-docs:
-    path: /v3/api-docs
+    path: /v4/api-docs
   swagger-ui:
     path: /swagger-ui.html
     operationsSorter: method
